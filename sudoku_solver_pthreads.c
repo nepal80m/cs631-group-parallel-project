@@ -2,110 +2,85 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include <time.h>  // Include for timing
+#include <time.h>
 
-#define MAX_THREADS 8  // Limit on threads to prevent excessive parallelism
+#define MAX_THREADS 8  // Max parallel threads to prevent excessive CPU use
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex to synchronize access
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;  // Mutex for thread safety
+int solved = 0;  // Global flag to stop all threads when a solution is found
 
 typedef struct {
     int sudoku[9][9];
-    int depth;
-    int row;
-    int col;
-    int num;
-    int *solved;
-} ThreadArgs;
+} SudokuGrid;
 
 void print_sudoku(int sudoku[9][9]) {
-    printf("The Sudoku contains:\n");
     for (int j = 0; j < 9; j++) {
         for (int i = 0; i < 9; i++) {
-            printf("%d  ", sudoku[j][i]);
+            printf("%d ", sudoku[j][i]);
         }
         printf("\n");
     }
 }
 
-int check_square(int sudoku[9][9], int num, int row, int col) {
+int is_valid(int sudoku[9][9], int num, int row, int col) {
+    for (int i = 0; i < 9; i++) {
+        if (sudoku[row][i] == num || sudoku[i][col] == num) return 0;
+    }
+
     int row_start = row - row % 3;
     int col_start = col - col % 3;
     for (int i = row_start; i < row_start + 3; i++) {
         for (int j = col_start; j < col_start + 3; j++) {
-            if (sudoku[i][j] == num) {
-                return 0;
-            }
+            if (sudoku[i][j] == num) return 0;
         }
     }
     return 1;
 }
 
-int check_sudoku(int sudoku[9][9], int num, int row, int col) {
-    for (int i = 0; i < 9; i++) {
-        if (num == sudoku[i][col] || num == sudoku[row][i]) {
-            return 0;
-        }
-    }
-    return check_square(sudoku, num, row, col);
-}
-
-int find_unassigned(int sudoku[9][9], int *row, int *col) {
-    for (int i = 0; i < 9; i++) {
-        for (int j = 0; j < 9; j++) {
-            if (sudoku[i][j] == 0) {
-                *row = i;
-                *col = j;
-                return 1;
-            }
+int find_empty_cell(int sudoku[9][9], int *row, int *col) {
+    for (*row = 0; *row < 9; (*row)++) {
+        for (*col = 0; *col < 9; (*col)++) {
+            if (sudoku[*row][*col] == 0) return 1;
         }
     }
     return 0;
 }
 
-void *sudoku_solver_thread(void *args) {
-    ThreadArgs *targs = (ThreadArgs *)args;
+void *solve_sudoku(void *arg) {
+    SudokuGrid *grid = (SudokuGrid *)arg;
     
-    if (*(targs->solved)) {
-        free(targs);
+    if (solved) {
+        free(grid);
         pthread_exit(NULL);
     }
 
-    int sudoku[9][9];
-    memcpy(sudoku, targs->sudoku, 9 * 9 * sizeof(int));
-
-    int row = targs->row;
-    int col = targs->col;
-    sudoku[row][col] = targs->num;
-
-    int new_row, new_col;
-    if (!find_unassigned(sudoku, &new_row, &new_col)) {
+    int row, col;
+    if (!find_empty_cell(grid->sudoku, &row, &col)) {
         pthread_mutex_lock(&mutex);
-        *(targs->solved) = 1;
-        memcpy(targs->sudoku, sudoku, 9 * 9 * sizeof(int));
+        if (!solved) {
+            solved = 1;
+            printf("Solution found:\n");
+            print_sudoku(grid->sudoku);
+        }
         pthread_mutex_unlock(&mutex);
-        free(targs);
+        free(grid);
         pthread_exit(NULL);
     }
 
     pthread_t threads[9];
     int thread_count = 0;
-    ThreadArgs *new_targs;
-    
-    for (int num = 1; num <= 9; num++) {
-        if (check_sudoku(sudoku, num, new_row, new_col)) {
-            new_targs = (ThreadArgs *)malloc(sizeof(ThreadArgs));
-            memcpy(new_targs->sudoku, sudoku, 9 * 9 * sizeof(int));
-            new_targs->depth = targs->depth + 1;
-            new_targs->row = new_row;
-            new_targs->col = new_col;
-            new_targs->num = num;
-            new_targs->solved = targs->solved;
 
-            if (targs->depth < MAX_THREADS) {
-                pthread_create(&threads[thread_count], NULL, sudoku_solver_thread, new_targs);
+    for (int num = 1; num <= 9; num++) {
+        if (is_valid(grid->sudoku, num, row, col)) {
+            SudokuGrid *new_grid = malloc(sizeof(SudokuGrid));
+            memcpy(new_grid->sudoku, grid->sudoku, 9 * 9 * sizeof(int));
+            new_grid->sudoku[row][col] = num;
+
+            if (thread_count < MAX_THREADS) {
+                pthread_create(&threads[thread_count], NULL, solve_sudoku, new_grid);
                 thread_count++;
             } else {
-                sudoku_solver_thread(new_targs);
+                solve_sudoku(new_grid);
             }
         }
     }
@@ -114,44 +89,21 @@ void *sudoku_solver_thread(void *args) {
         pthread_join(threads[i], NULL);
     }
 
-    free(targs);
+    free(grid);
     pthread_exit(NULL);
 }
 
-void solve_sudoku(int sudoku[9][9]) {
-    int row, col;
-    if (!find_unassigned(sudoku, &row, &col)) {
-        return;
-    }
+void start_solver(int sudoku[9][9]) {
+    SudokuGrid *grid = malloc(sizeof(SudokuGrid));
+    memcpy(grid->sudoku, sudoku, 9 * 9 * sizeof(int));
 
-    int solved = 0;
-    pthread_t threads[9];
-    int thread_count = 0;
-    ThreadArgs *targs;
-
-    for (int num = 1; num <= 9; num++) {
-        if (check_sudoku(sudoku, num, row, col)) {
-            targs = (ThreadArgs *)malloc(sizeof(ThreadArgs));
-            memcpy(targs->sudoku, sudoku, 9 * 9 * sizeof(int));
-            targs->depth = 0;
-            targs->row = row;
-            targs->col = col;
-            targs->num = num;
-            targs->solved = &solved;
-
-            pthread_create(&threads[thread_count], NULL, sudoku_solver_thread, targs);
-            thread_count++;
-        }
-    }
-
-    for (int i = 0; i < thread_count; i++) {
-        pthread_join(threads[i], NULL);
-    }
+    pthread_t thread;
+    pthread_create(&thread, NULL, solve_sudoku, grid);
+    pthread_join(thread, NULL);
 }
 
-#ifndef __testing
 int main() {
-    int Sudoku[9][9] = {
+    int sudoku[9][9] = {
         {1, 0, 6, 0, 0, 2, 3, 0, 0},
         {0, 5, 0, 0, 0, 6, 0, 9, 1},
         {0, 0, 9, 5, 0, 1, 4, 6, 2},
@@ -163,24 +115,16 @@ int main() {
         {9, 0, 0, 8, 7, 4, 2, 1, 0}
     };
 
-    printf("Input puzzle is:\n");
-    print_sudoku(Sudoku);
+    printf("Input Sudoku:\n");
+    print_sudoku(sudoku);
 
-    // Start timer
     clock_t start = clock();
-
-    solve_sudoku(Sudoku);
-
-    // Stop timer
+    start_solver(sudoku);
     clock_t end = clock();
 
-    printf("Solution is:\n");
-    print_sudoku(Sudoku);
-
-    // Calculate and print elapsed time in milliseconds
     double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000.0;
-    printf("Time taken to solve: %.2f ms\n", time_taken);
+    printf("Time taken: %.2f ms\n", time_taken);
 
     return 0;
 }
-#endif
+
