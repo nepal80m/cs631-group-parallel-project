@@ -5,7 +5,7 @@
 #include <time.h>
 #include <omp.h>
 
-#define PARALLEL_CUTOFF 2 // Only create tasks for recursion levels < this cutoff
+#define PARALLEL_CUTOFF 1 // Only create tasks for recursion levels < this cutoff
 
 void print_time()
 {

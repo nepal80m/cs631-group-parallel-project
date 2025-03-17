@@ -4,3 +4,13 @@
 ```
 make generate_sudoku n=100
 ```
+
+### To check the sbatch memory usage
+```
+sacct -j JOBID --format=JobID,JobName,ReqMem,MaxRSS,Elapsed
+```
+
+### Check partition list
+```
+sinfo -e -O partition,cpus,memory,nodes
+```

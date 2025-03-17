@@ -3,7 +3,6 @@
 #include <math.h>
 #include <time.h>
 
-/* Fisher-Yates shuffle for an integer array */
 void shuffle(int *array, int n)
 {
     for (int i = n - 1; i > 0; i--)
@@ -19,7 +18,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
-        fprintf(stderr, "Usage: %s <sudoku size>\n", argv[0]);
+        fprintf(stderr, "Usage: %s <sudoku size> [<removal_rate: 0.5>]\n", argv[0]);
         return 1;
     }
 
@@ -37,10 +36,19 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Seed the random number generator */
+    double removal_rate = 0.5; // Default removal rate
+    if (argc > 2)
+    {
+        removal_rate = atof(argv[2]);
+        if (removal_rate < 0 || removal_rate > 1)
+        {
+            fprintf(stderr, "Error: removal rate must be between 0 and 1.\n");
+            return 1;
+        }
+    }
+
     srand((unsigned)time(NULL));
 
-    /* Allocate and initialize an array of indices [0, 1, ..., base-1] */
     int *indices = malloc(base * sizeof(int));
     if (!indices)
     {
@@ -52,7 +60,6 @@ int main(int argc, char *argv[])
         indices[i] = i;
     }
 
-    /* Create arrays for band (group) ordering for rows and columns */
     int *band_rows = malloc(base * sizeof(int));
     int *band_cols = malloc(base * sizeof(int));
     if (!band_rows || !band_cols)
@@ -69,7 +76,6 @@ int main(int argc, char *argv[])
     shuffle(band_rows, base);
     shuffle(band_cols, base);
 
-    /* Allocate arrays for the final row and column orderings */
     int *rows = malloc(n * sizeof(int));
     int *cols = malloc(n * sizeof(int));
     if (!rows || !cols)
@@ -81,7 +87,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Build the row ordering: for each band, shuffle the inner rows */
     int idx = 0;
     for (int i = 0; i < base; i++)
     {
@@ -104,7 +109,6 @@ int main(int argc, char *argv[])
         free(inner);
     }
 
-    /* Build the column ordering: similar to rows */
     idx = 0;
     for (int i = 0; i < base; i++)
     {
@@ -127,7 +131,6 @@ int main(int argc, char *argv[])
         free(inner);
     }
 
-    /* Generate a random permutation of numbers 1..n */
     int *nums = malloc(n * sizeof(int));
     if (!nums)
     {
@@ -140,7 +143,6 @@ int main(int argc, char *argv[])
     }
     shuffle(nums, n);
 
-    /* Allocate 2D arrays for the board and the puzzle */
     int **board = malloc(n * sizeof(int *));
     int **puzzle = malloc(n * sizeof(int *));
     if (!board || !puzzle)
@@ -159,8 +161,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Build the complete sudoku board using the base pattern:
-       pattern(r, c) = (base * (r % base) + (r / base) + c) % n */
     for (int i = 0; i < n; i++)
     {
         for (int j = 0; j < n; j++)
@@ -172,7 +172,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Copy the solution into the puzzle */
     for (int i = 0; i < n; i++)
     {
         for (int j = 0; j < n; j++)
@@ -181,13 +180,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    /* Remove some cells to create the puzzle.
-       Here, we remove 50%% of the cells (adjust removal_rate as needed). */
-    double removal_rate = 0.5;
     int total_cells = n * n;
     int cells_to_remove = (int)(removal_rate * total_cells);
 
-    /* Create an array of cell indices from 0 to total_cells - 1 and shuffle it */
     int *cell_indices = malloc(total_cells * sizeof(int));
     if (!cell_indices)
     {
@@ -205,18 +200,15 @@ int main(int argc, char *argv[])
         int index = cell_indices[i];
         int r = index / n;
         int c = index % n;
-        puzzle[r][c] = 0; /* 0 represents an empty cell */
+        puzzle[r][c] = 0; // 0 represents an empty cell
     }
     free(cell_indices);
 
-    /* Create file names based on sudoku size */
     char puzzleFileName[64];
     char solutionFileName[64];
-    sprintf(puzzleFileName, "sudoku_puzzle_%d.txt", n);
-    sprintf(solutionFileName, "sudoku_solution_%d.txt", n);
+    sprintf(puzzleFileName, "sudoku_puzzle_%d_%03.0f.txt", n, removal_rate * 100);
+    sprintf(solutionFileName, "sudoku_solution_%d_%03.0f.txt", n, removal_rate * 100);
 
-    /* Write the puzzle and solution to files in a plain whitespace-delimited format.
-       The first line contains the dimension, followed by n rows with n space-separated numbers. */
     FILE *puzzleFile = fopen(puzzleFileName, "w");
     FILE *solutionFile = fopen(solutionFileName, "w");
     if (!puzzleFile || !solutionFile)
@@ -225,7 +217,6 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    /* Write the dimension as the first line */
     fprintf(puzzleFile, "%d\n", n);
     fprintf(solutionFile, "%d\n", n);
 
@@ -252,7 +243,6 @@ int main(int argc, char *argv[])
 
     printf("\nPuzzle and solution have been written to '%s' and '%s'.\n", puzzleFileName, solutionFileName);
 
-    /* Free allocated memory */
     free(indices);
     free(band_rows);
     free(band_cols);
