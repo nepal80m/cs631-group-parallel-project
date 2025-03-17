@@ -5,7 +5,7 @@
 #include <time.h>
 #include <omp.h>
 
-#define PARALLEL_CUTOFF 1 // Only create tasks for recursion levels < this cutoff
+#define PARALLEL_CUTOFF 2 // Only create tasks for recursion levels < this cutoff
 
 void print_time()
 {
@@ -31,6 +31,35 @@ void print_sudoku(int *sudoku, int grid_size)
         }
         printf("\n");
     }
+}
+
+void print_solution_and_time(int *sudoku, int grid_size, struct timespec *start, struct timespec *end)
+{
+    clock_gettime(CLOCK_MONOTONIC, end);
+
+    printf("Solution is:\n");
+    print_time();
+    print_sudoku(sudoku, grid_size);
+
+    long sec_diff = end->tv_sec - start->tv_sec;
+    long nsec_diff = end->tv_nsec - start->tv_nsec;
+    if (nsec_diff < 0)
+    {
+        sec_diff--;
+        nsec_diff += 1000000000;
+    }
+
+    double total_ms = sec_diff * 1000.0 + nsec_diff / 1000000.0;
+    int hrs = total_ms / (3600.0 * 1000.0);
+    double remainder = total_ms - hrs * 3600.0 * 1000.0;
+    int mins = remainder / (60.0 * 1000.0);
+    remainder -= mins * 60.0 * 1000.0;
+    int secs = remainder / 1000.0;
+    double ms = remainder - secs * 1000.0;
+
+    // double time_taken = ((double)(end - start)) / CLOCKS_PER_SEC * 1000.0;
+    printf("Time taken to solve (parallel): %02dhr: %02dmin: %02dsec: %06.2fms\n", hrs, mins, secs, ms);
+    exit(0);
 }
 
 int check_square(int *sudoku, int grid_size, int block_size, int num, int row, int col)
@@ -81,7 +110,7 @@ int find_unassigned(int *sudoku, int grid_size, int *row, int *col)
 
 // Parallel backtracking solver using OpenMP tasks.
 // The extra "depth" parameter is used to limit task creation.
-int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth)
+int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth, struct timespec *start, struct timespec *end)
 {
     int row, col;
     if (!find_unassigned(sudoku, grid_size, &row, &col))
@@ -106,7 +135,7 @@ int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth
 
 #pragma omp task shared(solved) firstprivate(sudoku_copy, grid_size, block_size, depth, row, col)
                 {
-                    if (sudoku_solver_parallel(sudoku_copy, grid_size, block_size, depth + 1))
+                    if (sudoku_solver_parallel(sudoku_copy, grid_size, block_size, depth + 1, start, end))
                     {
 #pragma omp critical
                         {
@@ -114,8 +143,9 @@ int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth
                             {
                                 solved = 1;
                                 print_time();
+                                print_solution_and_time(sudoku_copy, grid_size, start, end);
                                 // Copy found solution back to original sudoku
-                                memcpy(sudoku, sudoku_copy, grid_size * grid_size * sizeof(int));
+                                // memcpy(sudoku, sudoku_copy, grid_size * grid_size * sizeof(int));
                             }
                         }
                     }
@@ -126,8 +156,12 @@ int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth
             {
                 // For deeper recursion levels, proceed serially.
                 sudoku[row * grid_size + col] = num;
-                if (sudoku_solver_parallel(sudoku, grid_size, block_size, depth + 1))
+                if (sudoku_solver_parallel(sudoku, grid_size, block_size, depth + 1, start, end))
+                {
+                    print_time();
+                    print_solution_and_time(sudoku, grid_size, start, end);
                     return 1;
+                }
                 sudoku[row * grid_size + col] = 0; // Backtrack
             }
         }
@@ -136,13 +170,21 @@ int sudoku_solver_parallel(int *sudoku, int grid_size, int block_size, int depth
     return solved;
 }
 
-void solve_sudoku_parallel(int *sudoku, int grid_size, int block_size)
+void solve_sudoku_parallel(int *sudoku, int grid_size, int block_size, struct timespec *start, struct timespec *end)
 {
-#pragma omp parallel
+    // Start the parallel region
+    // Use OpenMP to create a single task for the initial call
+    // This ensures that only one thread starts the recursive search
+    // while other threads can help with the search.
+    // The "nowait" clause allows other threads to continue working without waiting for this task to finish.
+    // This is important for performance in parallel backtracking.
     {
-#pragma omp single nowait
+#pragma omp parallel
         {
-            sudoku_solver_parallel(sudoku, grid_size, block_size, 0);
+#pragma omp single nowait
+            {
+                sudoku_solver_parallel(sudoku, grid_size, block_size, 0, start, end);
+            }
         }
     }
 }
@@ -206,7 +248,7 @@ int main(int argc, char *argv[])
 
     // clock_t start = clock();
     clock_gettime(CLOCK_MONOTONIC, &start);
-    solve_sudoku_parallel(sudoku, grid_size, block_size);
+    solve_sudoku_parallel(sudoku, grid_size, block_size, &start, &end);
     clock_gettime(CLOCK_MONOTONIC, &end);
 
     // clock_t end = clock();
